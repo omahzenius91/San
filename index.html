@@ -338,12 +338,12 @@ td{padding:10px 12px;border-bottom:1px solid var(--ln);vertical-align:middle}
 
 <script>
 const S = {tab:'home',mat:null,matKat:'ALL',token:'',user:null,info:null,exams:[],sess:null,qs:[],ans:{},cur:0,timer:null,offset:0,deadline:0,
-  chain:Promise.resolve(),submitting:false,rev:null,filter:'ALL',from:'dash',op:null};
+  chain:Promise.resolve(),submitting:false,kicked:false,rev:null,filter:'ALL',from:'dash',op:null};
 const $ = id => document.getElementById(id);
 
 /* ---------- util ---------- */
 // >>> GANTI dengan URL Web App Apps Script Anda (Deploy > Web app > salin "URL aplikasi web", berakhiran /exec)
-const API_URL='https://script.google.com/macros/s/AKfycbz2kqy0jFhBUDQYTIr5Uyt3mL9_bnMqEFQcKmHTRQTFh64jUrWX3PVG5Kk4E8NTPbq0/exec';
+const API_URL='https://script.google.com/macros/s/AKfycbyHeViM1y-KOwLpLymwFS0FRx5SnL80npGZDxIrDlja4P1JmL6EWbClM-ahpLIDKje8/exec';
 function gas(fn,...a){
   if(!/^https:\/\/script\.google\.com\//.test(API_URL))return Promise.reject(new Error('API_URL belum diisi di index.html.'));
   return fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({fn:fn,args:a}),redirect:'follow'})
@@ -414,16 +414,23 @@ async function boot(){
   }catch(e){show('vLogin');$('loginErr').textContent=e.message;}
   finally{load(false);}
 }
-async function doLogin(){
+// force=true -> keluarkan login lama di perangkat lain
+async function doLogin(force){
   const u=$('iUser').value.trim(),p=$('iPass').value;
   $('loginErr').textContent='';
   if(!u||!p){$('loginErr').textContent='Username dan password wajib diisi.';return;}
   load(true);
   try{
-    const r=await gas('login',u,p);
+    const r=await gas('login',u,p,force===true);
     S.token=r.token;S.user=r.user;store('cat_token',r.token);$('iPass').value='';
     await afterLogin();
-  }catch(e){$('loginErr').textContent=e.message;}
+  }catch(e){
+    if(/^SUDAH_LOGIN/.test(e.message)){
+      modal('Akun sedang digunakan',
+        'Akun <b>'+esc(u)+'</b> masih login di perangkat/browser lain dan belum keluar.<br><br>Jika Anda melanjutkan, login di perangkat pertama akan <b>otomatis dikeluarkan</b>. Jawaban ujian yang sudah tersimpan tetap aman.',
+        [{t:'Batal'},{t:'Tetap Login di Sini',cls:'dg',fn:()=>doLogin(true)}]);
+    } else $('loginErr').textContent=e.message;
+  }
   finally{load(false);}
 }
 async function afterLogin(){ if(S.user.role==='OPERATOR') await loadOp(); else await loadDash(); }
@@ -496,7 +503,7 @@ async function beginExam(i,mode){
   try{
     const r=await gas('startExam',S.token,S.exams[i].nama,mode);
     S.sess=r;S.qs=r.questions;S.ans=r.answers||{};S.cur=0;S.deadline=r.deadline;
-    S.offset=r.now-Date.now();S.submitting=false;S.chain=Promise.resolve();
+    S.offset=r.now-Date.now();S.submitting=false;S.kicked=false;S.chain=Promise.resolve();
     $('examName').textContent=r.exam.nama;
     show('vExam');renderQ();renderNav();startTimer();
   }catch(e){toast(e.message);}
@@ -542,7 +549,16 @@ function saveQ(id){
   $('sync').textContent='Menyimpan…';
   S.chain=S.chain.then(()=>{const a=S.ans[id]||{j:'',r:false};return gas('saveAnswer',S.token,S.sess.sessionId,id,a.j,!!a.r);})
     .then(()=>{$('sync').textContent='Tersimpan otomatis ✓';})
-    .catch(e=>{$('sync').textContent='⚠ Gagal menyimpan ('+e.message+'). Jawaban tetap dikirim saat Anda menyelesaikan ujian.';});
+    .catch(e=>{
+      // akun dipakai login di perangkat lain -> hentikan ujian di perangkat ini
+      if(/login/i.test(e.message)&&!S.kicked){
+        S.kicked=true;clearInterval(S.timer);
+        modal('Sesi berakhir',esc(e.message)+'<br><br>Jawaban yang sudah tersimpan tetap aman. Login kembali lalu pilih <b>Lanjutkan</b>.',
+          [{t:'OK',cls:'pri',fn:()=>{S.sess=null;logout();}}]);
+        return;
+      }
+      $('sync').textContent='⚠ Gagal menyimpan ('+e.message+'). Jawaban tetap dikirim saat Anda menyelesaikan ujian.';
+    });
 }
 function goQ(i){S.cur=i;renderQ();renderNav();window.scrollTo(0,0);}
 function prevQ(){if(S.cur>0)goQ(S.cur-1);}
@@ -558,11 +574,13 @@ async function finish(auto){
   S.submitting=true;clearInterval(S.timer);load(true);
   try{
     await S.chain.catch(()=>{});
+    if(S.kicked||!S.sess){S.submitting=false;return;}
     const r=await gas('submitExam',S.token,S.sess.sessionId,S.ans);
     S.sess=null;S.from='dash';showReview(r,true);
   }catch(e){
     S.submitting=false;toast(e.message);
-    if(S.sess)startTimer();
+    if(S.sess&&/login/i.test(e.message)){S.sess=null;logout();}
+    else if(S.sess)startTimer();
   }finally{load(false);}
 }
 document.addEventListener('keydown',e=>{
@@ -715,11 +733,17 @@ function opDel(id){
 function renderOpUsers(){
   $('opUsers').innerHTML=S.op.users.map((u,i)=>`<tr><td><b>${esc(u.nama)}</b></td><td>${esc(u.u)}</td>
     <td><span class="pill ${u.status==='PESERTA'?'bl':(u.status==='OPERATOR'?'ok':'wr')}">${esc(u.status)}</span></td>
-    <td><button class="btn ghost sm" onclick="opEdit(${i})">Ubah</button></td></tr>`).join('');
+    <td style="white-space:nowrap"><button class="btn ghost sm" onclick="opEdit(${i})">Ubah</button>
+    <button class="btn wr sm" onclick="opReset(${i})">Reset login</button></td></tr>`).join('');
 }
 function opEdit(i){
   const u=S.op.users[i];$('uN').value=u.nama;$('uU').value=u.u;$('uP').value='';$('uS').value=u.status;
   window.scrollTo({top:0,behavior:'smooth'});
+}
+function opReset(i){
+  const u=S.op.users[i];
+  modal('Reset login?','Akun <b>'+esc(u.u)+'</b> akan dikeluarkan dari perangkat yang sedang memakainya. Jawaban ujian yang sudah tersimpan tidak hilang.',
+    [{t:'Batal'},{t:'Reset',cls:'dg',fn:async()=>{load(true);try{await gas('opResetLogin',S.token,u.u);toast('Login akun direset.');}catch(e){toast(e.message);}finally{load(false);}}}]);
 }
 async function opSaveUser(){
   load(true);
