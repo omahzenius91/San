@@ -4,6 +4,9 @@
 <base target="_top">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://script.google.com">
+<link rel="preconnect" href="https://script.googleusercontent.com">
+<link rel="preconnect" href="https://drive.google.com">
 <title>Latihan CAT</title>
 <style>
 :root{--p:#1d4ed8;--a:#0ea5e9;--bg:#eef2f7;--tx:#0f172a;--mu:#64748b;--ln:#e2e8f0;--ok:#16a34a;--wr:#f59e0b;--dg:#dc2626;--r:16px;--sh:0 10px 30px rgba(15,23,42,.07)}
@@ -41,8 +44,11 @@ b,strong{font-weight:700}
 .vbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:#fff;border:1px solid var(--ln);border-radius:14px;padding:10px 12px;margin-bottom:10px}
 .vbar b{flex:1;min-width:140px;font-size:15px}
 .vbar a.btn{text-decoration:none}
-#vBox{background:#fff}
+#vBox{background:#fff;position:relative}
+.vload{position:absolute;inset:0;display:flex;flex-direction:column;gap:12px;align-items:center;justify-content:center;background:#f8fafc;border-radius:14px;color:var(--mu);font-size:14px;z-index:2}
 #vFrame{display:block;width:100%;height:calc(100vh - 210px);min-height:460px;border:1px solid var(--ln);border-radius:14px;background:#fff}
+#vBox:fullscreen,#vBox:-webkit-full-screen{width:100vw;height:100vh;background:#111}
+#vBox:fullscreen #vFrame,#vBox:-webkit-full-screen #vFrame{height:100vh;min-height:0;border:0;border-radius:0}
 .vhint{font-size:12px;color:var(--mu);margin-top:8px;line-height:1.6}
 .who{font-size:13px;opacity:.95;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .timer{font-variant-numeric:tabular-nums;font-weight:800;font-size:20px;background:rgba(15,23,42,.35);padding:7px 14px;border-radius:10px;letter-spacing:.02em}
@@ -251,7 +257,7 @@ td{padding:10px 12px;border-bottom:1px solid var(--ln);vertical-align:middle}
     <a id="vDl" class="btn ghost sm" target="_blank" rel="noopener">⬇ Unduh</a>
     <a id="vTab" class="btn ghost sm" target="_blank" rel="noopener">↗ Tab baru</a>
   </div>
-  <div id="vBox"><iframe id="vFrame" title="Materi" allow="fullscreen" allowfullscreen></iframe></div>
+  <div id="vBox"><div id="vLoad" class="vload hidden"><div class="spin"></div><span>Memuat dokumen…</span></div><iframe id="vFrame" title="Materi" allow="fullscreen" allowfullscreen onload="vLoaded()"></iframe></div>
   <div class="vhint">Jika muncul pesan “Anda memerlukan akses”, minta operator mengatur berbagi file di Google Drive ke <b>Siapa saja yang memiliki link (Pelihat)</b>.</div>
 </section>
 
@@ -337,13 +343,13 @@ td{padding:10px 12px;border-bottom:1px solid var(--ln);vertical-align:middle}
 <div id="toast" class="toast hidden"></div>
 
 <script>
-const S = {tab:'home',mat:null,matKat:'ALL',token:'',user:null,info:null,exams:[],sess:null,qs:[],ans:{},cur:0,timer:null,offset:0,deadline:0,
-  chain:Promise.resolve(),submitting:false,kicked:false,rev:null,filter:'ALL',from:'dash',op:null};
+const S = {c:{},dirty:{},inflight:false,flushT:null,beat:null,tab:'home',mat:null,matKat:'ALL',token:'',user:null,info:null,exams:[],sess:null,qs:[],ans:{},cur:0,timer:null,offset:0,deadline:0,
+  chain:Promise.resolve(),submitting:false,rev:null,filter:'ALL',from:'dash',op:null};
 const $ = id => document.getElementById(id);
 
 /* ---------- util ---------- */
 // >>> GANTI dengan URL Web App Apps Script Anda (Deploy > Web app > salin "URL aplikasi web", berakhiran /exec)
-const API_URL='https://script.google.com/macros/s/AKfycbyHeViM1y-KOwLpLymwFS0FRx5SnL80npGZDxIrDlja4P1JmL6EWbClM-ahpLIDKje8/exec';
+const API_URL='https://script.google.com/macros/s/AKfycbz2kqy0jFhBUDQYTIr5Uyt3mL9_bnMqEFQcKmHTRQTFh64jUrWX3PVG5Kk4E8NTPbq0/exec';
 function gas(fn,...a){
   if(!/^https:\/\/script\.google\.com\//.test(API_URL))return Promise.reject(new Error('API_URL belum diisi di index.html.'));
   return fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({fn:fn,args:a}),redirect:'follow'})
@@ -360,7 +366,7 @@ function dt(ms){return ms?new Intl.DateTimeFormat('id-ID',{dateStyle:'medium',ti
 function hms(s){const h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;return [h,m,x].map(n=>String(n).padStart(2,'0')).join(':');}
 function load(v){$('loading').classList.toggle('hidden',!v);}
 function toast(m){const t=$('toast');t.textContent=m;t.classList.remove('hidden');clearTimeout(toast.t);toast.t=setTimeout(()=>t.classList.add('hidden'),3200);}
-function store(k,v){try{if(v===null)sessionStorage.removeItem(k);else if(v!==undefined)sessionStorage.setItem(k,v);else return sessionStorage.getItem(k);}catch(e){}return '';}
+function store(k,v){try{if(v===null)localStorage.removeItem(k);else if(v!==undefined)localStorage.setItem(k,v);else return localStorage.getItem(k);}catch(e){}return '';}
 function modal(title,html,btns){
   $('mT').textContent=title;$('mB').innerHTML=html;
   const b=$('mBtn');b.innerHTML='';
@@ -414,29 +420,62 @@ async function boot(){
   }catch(e){show('vLogin');$('loginErr').textContent=e.message;}
   finally{load(false);}
 }
-// force=true -> keluarkan login lama di perangkat lain
-async function doLogin(force){
+async function doLogin(){
   const u=$('iUser').value.trim(),p=$('iPass').value;
   $('loginErr').textContent='';
   if(!u||!p){$('loginErr').textContent='Username dan password wajib diisi.';return;}
   load(true);
   try{
-    const r=await gas('login',u,p,force===true);
-    S.token=r.token;S.user=r.user;store('cat_token',r.token);$('iPass').value='';
+    const r=await gas('login',u,p);
+    S.token=r.token;S.user=r.user;S.c={};store('cat_token',r.token);$('iPass').value='';
+    if(r.dash)S.c.dash={t:Date.now(),d:r.dash}; // dashboard ikut terkirim saat login -> lebih cepat
     await afterLogin();
   }catch(e){
-    if(/^SUDAH_LOGIN/.test(e.message)){
-      modal('Akun sedang digunakan',
-        'Akun <b>'+esc(u)+'</b> masih login di perangkat/browser lain dan belum keluar.<br><br>Jika Anda melanjutkan, login di perangkat pertama akan <b>otomatis dikeluarkan</b>. Jawaban ujian yang sudah tersimpan tetap aman.',
-        [{t:'Batal'},{t:'Tetap Login di Sini',cls:'dg',fn:()=>doLogin(true)}]);
-    } else $('loginErr').textContent=e.message;
+    if(/sedang login/i.test(e.message)){
+      $('loginErr').textContent='';
+      modal('⚠ Akun sedang digunakan',esc(e.message),[{t:'Mengerti',cls:'pri'}]);
+    }else $('loginErr').textContent=e.message;
   }
   finally{load(false);}
 }
-async function afterLogin(){ if(S.user.role==='OPERATOR') await loadOp(); else await loadDash(); }
+async function afterLogin(){
+  startBeat();
+  if(S.user.role==='OPERATOR') await loadOp(); else { await loadDash(); setTimeout(prefetch,700); }
+}
+function startBeat(){
+  clearInterval(S.beat);
+  S.beat=setInterval(()=>{ if(S.token)gas('ping',S.token).catch(e=>{ if(/login|dipakai/i.test(e.message))forceOut(e.message); }); },60000);
+}
+function forceOut(msg){
+  if(!S.token)return;
+  clearInterval(S.beat);clearInterval(S.timer);clearTimeout(S.flushT);
+  store('cat_token',null);S.token='';S.user=null;S.sess=null;S.c={};show('vLogin');
+  modal('Sesi berakhir',esc(msg||'Silakan login kembali.'),[{t:'OK',cls:'pri'}]);
+}
 function logout(){
   gas('logout',S.token).catch(()=>{});
-  store('cat_token',null);S.token='';S.user=null;clearInterval(S.timer);show('vLogin');
+  clearInterval(S.beat);clearTimeout(S.flushT);
+  store('cat_token',null);S.token='';S.user=null;S.c={};clearInterval(S.timer);show('vLogin');
+}
+function prefetch(){
+  if(!S.token)return;
+  if(!S.c.mat)gas('getMateri',S.token).then(d=>{S.c.mat={t:Date.now(),d:d};}).catch(()=>{});
+  if(!S.c.hist)gas('getRiwayat',S.token).then(d=>{S.c.hist={t:Date.now(),d:d};}).catch(()=>{});
+}
+// Tampilkan data tersimpan dulu (instan), lalu segarkan di belakang layar bila sudah lama
+const FRESH={dash:20000,hist:30000,mat:120000};
+async function swr(key,fetcher,render,view,force){
+  const c=S.c[key];
+  if(c&&!force){
+    render(c.d);show(view);
+    if(Date.now()-c.t<FRESH[key])return;
+    try{const d=await fetcher();S.c[key]={t:Date.now(),d:d};if(!$(view).classList.contains('hidden'))render(d);}catch(e){}
+    return;
+  }
+  load(true);
+  try{const d=await fetcher();S.c[key]={t:Date.now(),d:d};render(d);show(view);}
+  catch(e){toast(e.message);if(/login/i.test(e.message))logout();}
+  finally{load(false);}
 }
 function renderMenu(){
   const t=[['home','Beranda'],['materi','Materi'],['riwayat','Riwayat']];
@@ -446,22 +485,17 @@ function renderMenu(){
 function goTab(k){ ({home:loadDash,materi:loadMateri,riwayat:loadRiwayat,op:loadOp})[k](); }
 
 /* ---------- dashboard ---------- */
-async function loadDash(){
-  load(true);
-  try{
-    const r=await gas('getDashboard',S.token);
-    S.user=r.user;S.exams=r.exams;S.syaratTotal=!!r.syaratTotal;S.from='dash';
-    $('hello').textContent='Halo, '+r.user.nama+' 👋';
-    const done=r.exams.filter(e=>e.percobaan>0);
-    const tot=r.riwayat.length;
-    $('stA').textContent=r.exams.length;
-    $('stD').textContent=done.length;
-    $('stP').textContent=r.exams.reduce((a,e)=>a+e.percobaan,0);
-    $('stR').textContent=tot?(Math.round(r.riwayat.reduce((a,h)=>a+h.skor,0)/tot*10)/10):'—';
-    $('examGrid').innerHTML=r.exams.map(examCard).join('')||'<div class="card">Belum ada ujian aktif.</div>';
-    show('vDash');
-  }catch(e){toast(e.message);if(/login/i.test(e.message)){logout();}}
-  finally{load(false);}
+function loadDash(force){return swr('dash',()=>gas('getDashboard',S.token),renderDash,'vDash',force===true);}
+function renderDash(r){
+  S.user=r.user;S.exams=r.exams;S.syaratTotal=!!r.syaratTotal;S.from='dash';
+  $('hello').textContent='Halo, '+r.user.nama+' 👋';
+  const done=r.exams.filter(e=>e.percobaan>0);
+  const tot=r.riwayat.length;
+  $('stA').textContent=r.exams.length;
+  $('stD').textContent=done.length;
+  $('stP').textContent=r.exams.reduce((a,e)=>a+e.percobaan,0);
+  $('stR').textContent=tot?(Math.round(r.riwayat.reduce((a,h)=>a+h.skor,0)/tot*10)/10):'—';
+  $('examGrid').innerHTML=r.exams.map(examCard).join('')||'<div class="card">Belum ada ujian aktif.</div>';
 }
 function syaratTxt(e){
   const p=(e.syarat||[]).map(s=>s.kode+' ≥ '+s.min);
@@ -503,7 +537,7 @@ async function beginExam(i,mode){
   try{
     const r=await gas('startExam',S.token,S.exams[i].nama,mode);
     S.sess=r;S.qs=r.questions;S.ans=r.answers||{};S.cur=0;S.deadline=r.deadline;
-    S.offset=r.now-Date.now();S.submitting=false;S.kicked=false;S.chain=Promise.resolve();
+    S.offset=r.now-Date.now();S.submitting=false;S.dirty={};S.inflight=false;clearTimeout(S.flushT);delete S.c.dash;delete S.c.hist;
     $('examName').textContent=r.exam.nama;
     show('vExam');renderQ();renderNav();startTimer();
   }catch(e){toast(e.message);}
@@ -545,20 +579,24 @@ function toggleDbt(){
   const q=S.qs[S.cur],a=S.ans[q.id]||{j:'',r:false};
   S.ans[q.id]={j:a.j,r:!a.r};renderQ();renderNav();saveQ(q.id);
 }
+// Jawaban dikumpulkan lalu dikirim sekaligus (maks. tiap ~1 detik) -> tidak menumpuk antrean
 function saveQ(id){
-  $('sync').textContent='Menyimpan…';
-  S.chain=S.chain.then(()=>{const a=S.ans[id]||{j:'',r:false};return gas('saveAnswer',S.token,S.sess.sessionId,id,a.j,!!a.r);})
-    .then(()=>{$('sync').textContent='Tersimpan otomatis ✓';})
-    .catch(e=>{
-      // akun dipakai login di perangkat lain -> hentikan ujian di perangkat ini
-      if(/login/i.test(e.message)&&!S.kicked){
-        S.kicked=true;clearInterval(S.timer);
-        modal('Sesi berakhir',esc(e.message)+'<br><br>Jawaban yang sudah tersimpan tetap aman. Login kembali lalu pilih <b>Lanjutkan</b>.',
-          [{t:'OK',cls:'pri',fn:()=>{S.sess=null;logout();}}]);
-        return;
-      }
-      $('sync').textContent='⚠ Gagal menyimpan ('+e.message+'). Jawaban tetap dikirim saat Anda menyelesaikan ujian.';
-    });
+  S.dirty[id]=1;$('sync').textContent='Menyimpan…';
+  clearTimeout(S.flushT);S.flushT=setTimeout(flush,900);
+}
+async function flush(){
+  S.flushT=null;
+  if(S.inflight||!S.sess)return;
+  const ids=Object.keys(S.dirty);if(!ids.length)return;
+  S.inflight=true;
+  const batch={};ids.forEach(id=>{batch[id]=S.ans[id]||{j:'',r:false};delete S.dirty[id];});
+  try{await gas('saveAnswers',S.token,S.sess.sessionId,batch);$('sync').textContent='Tersimpan otomatis ✓';}
+  catch(e){
+    ids.forEach(id=>S.dirty[id]=1);
+    $('sync').textContent='⚠ Belum tersimpan ('+e.message+'). Dicoba lagi otomatis; jawaban tetap dikirim saat Anda menyelesaikan ujian.';
+    clearTimeout(S.flushT);S.flushT=setTimeout(flush,5000);
+  }
+  finally{S.inflight=false;if(Object.keys(S.dirty).length&&!S.flushT)S.flushT=setTimeout(flush,300);}
 }
 function goQ(i){S.cur=i;renderQ();renderNav();window.scrollTo(0,0);}
 function prevQ(){if(S.cur>0)goQ(S.cur-1);}
@@ -573,14 +611,13 @@ async function finish(auto){
   if(S.submitting||!S.sess)return;
   S.submitting=true;clearInterval(S.timer);load(true);
   try{
-    await S.chain.catch(()=>{});
-    if(S.kicked||!S.sess){S.submitting=false;return;}
+    clearTimeout(S.flushT);
+    const t0=Date.now();while(S.inflight&&Date.now()-t0<8000)await new Promise(r=>setTimeout(r,100));
     const r=await gas('submitExam',S.token,S.sess.sessionId,S.ans);
-    S.sess=null;S.from='dash';showReview(r,true);
+    S.sess=null;S.dirty={};S.from='dash';delete S.c.dash;delete S.c.hist;showReview(r,true);
   }catch(e){
     S.submitting=false;toast(e.message);
-    if(S.sess&&/login/i.test(e.message)){S.sess=null;logout();}
-    else if(S.sess)startTimer();
+    if(S.sess)startTimer();
   }finally{load(false);}
 }
 document.addEventListener('keydown',e=>{
@@ -650,33 +687,20 @@ function itemHtml(it){
     <div class="qtext" style="font-size:16px">${fmt(it.soal)}</div>${opts}
     <div class="ul"><b>Pembahasan</b><br>${it.ulasan?fmt(it.ulasan):'<i style="color:var(--mu)">Belum ada pembahasan untuk soal ini.</i>'}</div></div>`;
 }
-function backFromReview(){ if(S.from==='op'&&S.user.role==='OPERATOR')loadOp(); else if(S.from==='riwayat')loadRiwayat(); else loadDash(); }
+function backFromReview(){ if(S.from==='op'&&S.user.role==='OPERATOR')return loadOp(); if(S.from==='riwayat')return loadRiwayat(); return loadDash(); }
 
 /* ---------- riwayat ---------- */
-async function loadRiwayat(){
-  load(true);
-  try{
-    const r=await gas('getRiwayat',S.token);
-    S.from='riwayat';
-    $('histSub').textContent=r.length?('Total '+r.length+' hasil ujian yang pernah Anda kerjakan.'):'Semua hasil ujian yang pernah Anda kerjakan.';
-    $('hist').innerHTML=r.map(h=>`<tr><td>${dt(h.waktu)}</td><td><b>${esc(h.ujian)}</b></td><td><b>${h.skor}</b> / ${h.maks}</td><td>${h.benar} / ${h.salah} / ${h.kosong}</td><td>${h.durasi} mnt</td>
-      <td><span class="pill ${h.lulus?'ok':'dg'}">${h.lulus?'LULUS':'TIDAK LULUS'}</span></td><td><button class="btn ghost sm" onclick="openReview('${esc(h.id)}','riwayat')">Pembahasan</button></td></tr>`).join('')
-      ||'<tr><td colspan="7" style="text-align:center;color:var(--mu);padding:24px">Belum ada riwayat ujian.</td></tr>';
-    show('vHist');
-  }catch(e){toast(e.message);if(/login/i.test(e.message)){logout();}}
-  finally{load(false);}
+function loadRiwayat(force){return swr('hist',()=>gas('getRiwayat',S.token),renderRiwayat,'vHist',force===true);}
+function renderRiwayat(r){
+  S.from='riwayat';
+  $('histSub').textContent=r.length?('Total '+r.length+' hasil ujian yang pernah Anda kerjakan.'):'Semua hasil ujian yang pernah Anda kerjakan.';
+  $('hist').innerHTML=r.map(h=>`<tr><td>${dt(h.waktu)}</td><td><b>${esc(h.ujian)}</b></td><td><b>${h.skor}</b> / ${h.maks}</td><td>${h.benar} / ${h.salah} / ${h.kosong}</td><td>${h.durasi} mnt</td>
+    <td><span class="pill ${h.lulus?'ok':'dg'}">${h.lulus?'LULUS':'TIDAK LULUS'}</span></td><td><button class="btn ghost sm" onclick="openReview('${esc(h.id)}','riwayat')">Pembahasan</button></td></tr>`).join('')
+    ||'<tr><td colspan="7" style="text-align:center;color:var(--mu);padding:24px">Belum ada riwayat ujian.</td></tr>';
 }
 
 /* ---------- materi (PDF dari Google Drive) ---------- */
-async function loadMateri(){
-  load(true);
-  try{
-    S.mat=await gas('getMateri',S.token);
-    if(S.matKat!=='ALL'&&S.mat.kat.indexOf(S.matKat)<0)S.matKat='ALL';
-    renderMateri();show('vMat');
-  }catch(e){toast(e.message);if(/login/i.test(e.message)){logout();}}
-  finally{load(false);}
-}
+function loadMateri(force){return swr('mat',()=>gas('getMateri',S.token),d=>{S.mat=d;if(S.matKat!=='ALL'&&d.kat.indexOf(S.matKat)<0)S.matKat='ALL';renderMateri();},'vMat',force===true);}
 function setMatKat(k){S.matKat=k;renderMateri();}
 function renderMateri(){
   const m=S.mat||{items:[],kat:[]},q=$('matQ').value.trim().toLowerCase();
@@ -692,11 +716,14 @@ function openMateri(id){
   const it=(S.mat?S.mat.items:[]).find(x=>x.id===id);
   if(!it||!/^[\w-]{20,}$/.test(id))return;
   $('vTitle').textContent=it.judul;
+  $('vLoad').classList.remove('hidden');
+  clearTimeout(openMateri.t);openMateri.t=setTimeout(vLoaded,20000);
   $('vFrame').src='https://drive.google.com/file/d/'+id+'/preview';
   $('vDl').href='https://drive.google.com/uc?export=download&id='+id;
   $('vTab').href='https://drive.google.com/file/d/'+id+'/view';
   show('vViewer');
 }
+function vLoaded(){ $('vLoad').classList.add('hidden'); }
 function closeViewer(){ $('vFrame').removeAttribute('src'); show('vMat'); }
 function vFull(){
   const b=$('vBox');
@@ -733,17 +760,18 @@ function opDel(id){
 function renderOpUsers(){
   $('opUsers').innerHTML=S.op.users.map((u,i)=>`<tr><td><b>${esc(u.nama)}</b></td><td>${esc(u.u)}</td>
     <td><span class="pill ${u.status==='PESERTA'?'bl':(u.status==='OPERATOR'?'ok':'wr')}">${esc(u.status)}</span></td>
-    <td style="white-space:nowrap"><button class="btn ghost sm" onclick="opEdit(${i})">Ubah</button>
-    <button class="btn wr sm" onclick="opReset(${i})">Reset login</button></td></tr>`).join('');
+    <td style="white-space:nowrap"><button class="btn ghost sm" onclick="opEdit(${i})">Ubah</button> <button class="btn wr sm" onclick="opKick(${i})">Keluarkan</button></td></tr>`).join('');
+}
+async function opKick(i){
+  const u=S.op.users[i];
+  load(true);
+  try{await gas('opPaksaKeluar',S.token,u.u);toast('Akun '+u.u+' dikeluarkan. Sekarang bisa login lagi.');}
+  catch(e){toast(e.message);}
+  finally{load(false);}
 }
 function opEdit(i){
   const u=S.op.users[i];$('uN').value=u.nama;$('uU').value=u.u;$('uP').value='';$('uS').value=u.status;
   window.scrollTo({top:0,behavior:'smooth'});
-}
-function opReset(i){
-  const u=S.op.users[i];
-  modal('Reset login?','Akun <b>'+esc(u.u)+'</b> akan dikeluarkan dari perangkat yang sedang memakainya. Jawaban ujian yang sudah tersimpan tidak hilang.',
-    [{t:'Batal'},{t:'Reset',cls:'dg',fn:async()=>{load(true);try{await gas('opResetLogin',S.token,u.u);toast('Login akun direset.');}catch(e){toast(e.message);}finally{load(false);}}}]);
 }
 async function opSaveUser(){
   load(true);
