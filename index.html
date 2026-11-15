@@ -50,6 +50,16 @@ b,strong{font-weight:700}
 #vBox:fullscreen,#vBox:-webkit-full-screen{width:100vw;height:100vh;background:#111}
 #vBox:fullscreen #vFrame,#vBox:-webkit-full-screen #vFrame{height:100vh;min-height:0;border:0;border-radius:0}
 
+/* ===== Resume ===== */
+.rs-card{background:#fff;border:1px solid var(--ln);border-radius:var(--r);padding:20px 22px;box-shadow:var(--sh);margin-bottom:14px}
+.rs-card h3{margin:10px 0 12px;font-size:18px;line-height:1.4}
+.rs-body{font-size:15px;line-height:1.75}
+.rs-body p{margin:0 0 8px}
+.rs-body .rs-h{font-weight:800;margin:14px 0 4px;color:var(--p)}
+.rs-body ul,.rs-body ol{margin:0 0 8px;padding-left:22px}
+.rs-body li{margin-bottom:4px}
+.rs-body li::marker{color:var(--a);font-weight:800}
+
 /* ===== Bahasa Inggris ===== */
 .eng-layout{display:grid;grid-template-columns:270px minmax(0,1fr);gap:20px;margin-top:18px;align-items:start}
 .eng-side{position:sticky;top:92px;background:#fff;border:1px solid var(--ln);border-radius:16px;padding:10px;max-height:calc(100vh - 110px);overflow:auto}
@@ -245,6 +255,7 @@ td{padding:10px 12px;border-bottom:1px solid var(--ln);vertical-align:middle}
   .qc{padding:16px}.qtext{font-size:16px}.nums{grid-template-columns:repeat(8,1fr);gap:6px}.num{font-size:12px}
   .res3{grid-template-columns:repeat(2,1fr)}.big{font-size:56px}
   .qa .g{width:100%}.qa .g .btn{flex:1}
+  .rs-card{padding:16px}
 }
 </style>
 </head>
@@ -338,6 +349,16 @@ td{padding:10px 12px;border-bottom:1px solid var(--ln);vertical-align:middle}
   </div>
 </section>
 
+<!-- RESUME -->
+<section id="vRes" class="wrap hidden">
+  <div class="hi"><h1>Resume</h1><p>Catatan singkat materi yang sering keluar — cocok dibaca ulang sebelum ujian.</p></div>
+  <div class="mtool">
+    <div id="resChips" class="chips"></div>
+    <div class="msearch"><input id="resQ" placeholder="Cari resume…" oninput="renderResume()"></div>
+  </div>
+  <div id="resList"></div>
+</section>
+
 <!-- UJIAN -->
 <section id="vExam" class="hidden">
   <div class="exl">
@@ -420,13 +441,13 @@ td{padding:10px 12px;border-bottom:1px solid var(--ln);vertical-align:middle}
 <div id="toast" class="toast hidden"></div>
 
 <script>
-const S = {eng:{data:null,cur:'0',ans:{},prog:{},fs:1,loaded:false},c:{},dirty:{},inflight:false,flushT:null,beat:null,tab:'home',mat:null,matKat:'ALL',token:'',user:null,info:null,exams:[],sess:null,qs:[],ans:{},cur:0,timer:null,offset:0,deadline:0,
+const S = {eng:{data:null,cur:'0',ans:{},prog:{},fs:1,loaded:false},c:{},dirty:{},inflight:false,flushT:null,beat:null,tab:'home',mat:null,matKat:'ALL',res:null,resKat:'ALL',token:'',user:null,info:null,exams:[],sess:null,qs:[],ans:{},cur:0,timer:null,offset:0,deadline:0,
   chain:Promise.resolve(),submitting:false,rev:null,filter:'ALL',from:'dash',op:null};
 const $ = id => document.getElementById(id);
 
 /* ---------- util ---------- */
 // >>> GANTI dengan URL Web App Apps Script Anda (Deploy > Web app > salin "URL aplikasi web", berakhiran /exec)
-const API_URL='https://script.google.com/macros/s/AKfycbww_HEhSDaB61Ux2Cz45BE-syIUNnhMD-KtVFbVuwgY8J3oHnauo9FUc6ZzeVBudylt/exec';
+const API_URL='https://script.google.com/macros/s/AKfycbyu2Rv1eXEBSRx7eDtYOYmD6QoGYi9aEzWJFme2mnLXROKlQpe0540fSJEhipty64-6/exec';
 function gas(fn,...a){
   if(!/^https:\/\/script\.google\.com\//.test(API_URL))return Promise.reject(new Error('API_URL belum diisi di index.html.'));
   return fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({fn:fn,args:a}),redirect:'follow'})
@@ -453,8 +474,8 @@ function modal(title,html,btns){
 }
 function closeModal(){$('mbg').classList.add('hidden');}
 
-const VIEWS=['vLogin','vDash','vHist','vMat','vViewer','vEng','vExam','vReview','vOp'];
-const TAB={vDash:'home',vHist:'riwayat',vMat:'materi',vViewer:'materi',vEng:'eng',vOp:'op'};
+const VIEWS=['vLogin','vDash','vHist','vMat','vViewer','vEng','vRes','vExam','vReview','vOp'];
+const TAB={vDash:'home',vHist:'riwayat',vMat:'materi',vViewer:'materi',vEng:'eng',vRes:'resume',vOp:'op'};
 function show(v){
   VIEWS.forEach(x=>$(x).classList.toggle('hidden',x!==v));
   $('top').classList.toggle('hidden',v==='vLogin');
@@ -538,10 +559,11 @@ function prefetch(){
   if(!S.token)return;
   if(!S.c.mat)gas('getMateri',S.token).then(d=>{S.c.mat={t:Date.now(),d:d};}).catch(()=>{});
   if(!S.c.eng)gas('getInggris',S.token).then(d=>{S.c.eng={t:Date.now(),d:d};}).catch(()=>{});
+  if(!S.c.res)gas('getResume',S.token).then(d=>{S.c.res={t:Date.now(),d:d};}).catch(()=>{});
   if(!S.c.hist)gas('getRiwayat',S.token).then(d=>{S.c.hist={t:Date.now(),d:d};}).catch(()=>{});
 }
 // Tampilkan data tersimpan dulu (instan), lalu segarkan di belakang layar bila sudah lama
-const FRESH={dash:20000,hist:30000,mat:120000,eng:120000};
+const FRESH={dash:20000,hist:30000,mat:120000,eng:120000,res:120000};
 async function swr(key,fetcher,render,view,force){
   const c=S.c[key];
   if(c&&!force){
@@ -556,11 +578,11 @@ async function swr(key,fetcher,render,view,force){
   finally{load(false);}
 }
 function renderMenu(){
-  const t=[['home','Beranda'],['materi','Materi'],['eng','Bahasa Inggris'],['riwayat','Riwayat']];
+  const t=[['home','Beranda'],['materi','Materi'],['eng','Bahasa Inggris'],['resume','Resume'],['riwayat','Riwayat']];
   if(S.user&&S.user.role==='OPERATOR')t.push(['op','Panel Operator']);
   $('menu').innerHTML=t.map(x=>`<a class="${S.tab===x[0]?'on':''}" onclick="goTab('${x[0]}')">${x[1]}</a>`).join('');
 }
-function goTab(k){ ({home:loadDash,materi:loadMateri,eng:loadInggris,riwayat:loadRiwayat,op:loadOp})[k](); }
+function goTab(k){ ({home:loadDash,materi:loadMateri,eng:loadInggris,resume:loadResume,riwayat:loadRiwayat,op:loadOp})[k](); }
 
 /* ---------- dashboard ---------- */
 function loadDash(force){return swr('dash',()=>gas('getDashboard',S.token),renderDash,'vDash',force===true);}
@@ -678,7 +700,21 @@ async function flush(){
 }
 function goQ(i){S.cur=i;renderQ();renderNav();window.scrollTo(0,0);}
 function prevQ(){if(S.cur>0)goQ(S.cur-1);}
-function nextQ(){if(S.cur<S.qs.length-1)goQ(S.cur+1);else toast('Ini soal terakhir.');}
+// Selanjutnya: soal biasa -> soal berikutnya. Di soal terakhir -> loncat ke soal yang belum terjawab;
+// jika semua sudah terjawab -> langsung konfirmasi akhiri ujian.
+function nextQ(){
+  const n=S.qs.length;
+  if(S.cur<n-1){goQ(S.cur+1);return;}
+  const kosong=[];
+  S.qs.forEach((q,i)=>{if(!(S.ans[q.id]||{}).j)kosong.push(i);});
+  if(kosong.length){
+    const t=kosong.find(i=>i!==S.cur);
+    if(t===undefined){toast('Soal ini belum dijawab. Pilih jawaban lalu tekan Selanjutnya.');return;}
+    toast('Masih ada '+kosong.length+' soal belum dijawab. Dipindah ke soal '+(t+1)+'.');
+    goQ(t);return;
+  }
+  askFinish();
+}
 function askFinish(){
   const n=S.qs.length,a=S.qs.filter(q=>(S.ans[q.id]||{}).j).length,r=S.qs.filter(q=>(S.ans[q.id]||{}).r).length;
   modal('Selesaikan ujian?',`<p style="margin:0">Terjawab <b>${a}</b> • Belum dijawab <b>${n-a}</b> • Ragu-ragu <b>${r}</b></p>
@@ -807,6 +843,30 @@ function vFull(){
   const b=$('vBox');
   try{(b.requestFullscreen||b.webkitRequestFullscreen).call(b);}
   catch(e){toast('Layar penuh tidak didukung di sini. Gunakan tombol Tab baru.');}
+}
+
+/* ---------- resume (catatan singkat dari sheet RESUME) ---------- */
+function loadResume(force){return swr('res',()=>gas('getResume',S.token),d=>{S.res=d;if(S.resKat!=='ALL'&&d.kat.indexOf(S.resKat)<0)S.resKat='ALL';renderResume();},'vRes',force===true);}
+function setResKat(k){S.resKat=k;renderResume();}
+// Format isi: "- teks" = poin, "1. teks" = bernomor, "Judul:" = subjudul, *huruf* = tebal, baris lain = paragraf
+function resFmt(s){
+  const b=t=>esc(t).replace(/\*([^*\n]+)\*/g,'<b>$1</b>');
+  let h='',mode='';
+  const close=()=>{if(mode)h+='</'+mode+'>';mode='';};
+  String(s||'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean).forEach(l=>{
+    let m;
+    if((m=l.match(/^[-•]\s+(.*)$/))){if(mode!=='ul'){close();h+='<ul>';mode='ul';}h+='<li>'+b(m[1])+'</li>';}
+    else if((m=l.match(/^\d+[.)]\s+(.*)$/))){if(mode!=='ol'){close();h+='<ol>';mode='ol';}h+='<li>'+b(m[1])+'</li>';}
+    else{close();h+=(/:$/.test(l)&&l.length<70)?'<p class="rs-h">'+b(l)+'</p>':'<p>'+b(l)+'</p>';}
+  });
+  close();return h;
+}
+function renderResume(){
+  const m=S.res||{items:[],kat:[]},q=$('resQ').value.trim().toLowerCase();
+  $('resChips').innerHTML=['ALL'].concat(m.kat).map(k=>`<button class="chip ${S.resKat===k?'on':''}" data-k="${esc(k)}" onclick="setResKat(this.dataset.k)">${k==='ALL'?'Semua':esc(k)}</button>`).join('');
+  const list=m.items.filter(i=>(S.resKat==='ALL'||i.kat===S.resKat)&&(!q||(i.judul+' '+i.kat+' '+i.isi).toLowerCase().includes(q)));
+  $('resList').innerHTML=list.map(i=>`<article class="rs-card"><span class="mkat">${esc(i.kat)}</span><h3>${esc(i.judul)}</h3><div class="rs-body">${resFmt(i.isi)}</div></article>`).join('')
+    ||'<div class="card" style="text-align:center;color:var(--mu)">'+(m.items.length?'Tidak ada resume yang cocok.':'Belum ada resume. Operator dapat menambahkannya di sheet RESUME.')+'</div>';
 }
 
 /* ---------- bahasa inggris (12 tenses) ---------- */
