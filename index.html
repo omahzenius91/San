@@ -50,15 +50,21 @@ b,strong{font-weight:700}
 #vBox:fullscreen,#vBox:-webkit-full-screen{width:100vw;height:100vh;background:#111}
 #vBox:fullscreen #vFrame,#vBox:-webkit-full-screen #vFrame{height:100vh;min-height:0;border:0;border-radius:0}
 
-/* ===== Resume ===== */
+/* ===== Resume & pengumuman ===== */
 .rs-card{background:#fff;border:1px solid var(--ln);border-radius:var(--r);padding:20px 22px;box-shadow:var(--sh);margin-bottom:14px}
-.rs-card h3{margin:10px 0 12px;font-size:18px;line-height:1.4}
+.rs-card h3{margin:10px 0 14px;font-size:18px;line-height:1.4}
 .rs-body{font-size:15px;line-height:1.75}
-.rs-body p{margin:0 0 8px}
-.rs-body .rs-h{font-weight:800;margin:14px 0 4px;color:var(--p)}
-.rs-body ul,.rs-body ol{margin:0 0 8px;padding-left:22px}
-.rs-body li{margin-bottom:4px}
+.rs-body p{margin:0 0 10px}
+.rs-body .rs-h{font-weight:800;margin:18px 0 8px;color:var(--p)}
+.rs-body > .rs-h:first-child{margin-top:0}
+.rs-body ul,.rs-body ol{margin:0 0 12px;padding-left:22px}
+.rs-body li{margin-bottom:8px}
 .rs-body li::marker{color:var(--a);font-weight:800}
+.rs-sp{height:12px}
+.rs-kv{display:grid;grid-template-columns:fit-content(42%) 18px minmax(0,1fr);gap:8px 0;margin:0 0 12px;align-items:start}
+.rs-kv .k{font-weight:700;padding-right:4px}
+.rs-kv .c{text-align:center;font-weight:700;color:var(--mu)}
+.rs-kv .v{min-width:0}
 
 /* ===== Bahasa Inggris ===== */
 .eng-layout{display:grid;grid-template-columns:270px minmax(0,1fr);gap:20px;margin-top:18px;align-items:start}
@@ -447,7 +453,7 @@ const $ = id => document.getElementById(id);
 
 /* ---------- util ---------- */
 // >>> GANTI dengan URL Web App Apps Script Anda (Deploy > Web app > salin "URL aplikasi web", berakhiran /exec)
-const API_URL='https://script.google.com/macros/s/AKfycbyu2Rv1eXEBSRx7eDtYOYmD6QoGYi9aEzWJFme2mnLXROKlQpe0540fSJEhipty64-6/exec';
+const API_URL='https://script.google.com/macros/s/AKfycbxnV2BreVBB1PJ6nvcbIa5YOdvjl5loQlVPKIF6O2jz3C8Rdv_sQXYoQZPdbMInUqRa/exec';
 function gas(fn,...a){
   if(!/^https:\/\/script\.google\.com\//.test(API_URL))return Promise.reject(new Error('API_URL belum diisi di index.html.'));
   return fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({fn:fn,args:a}),redirect:'follow'})
@@ -528,6 +534,7 @@ async function doLogin(){
     S.token=r.token;S.user=r.user;S.c={};store('cat_token',r.token);$('iPass').value='';
     if(r.dash)S.c.dash={t:Date.now(),d:r.dash}; // dashboard ikut terkirim saat login -> lebih cepat
     await afterLogin();
+    showNotice();
   }catch(e){
     if(/sedang login/i.test(e.message)){
       $('loginErr').textContent='';
@@ -539,6 +546,23 @@ async function doLogin(){
 async function afterLogin(){
   startBeat();
   if(S.user.role==='OPERATOR') await loadOp(); else { await loadDash(); setTimeout(prefetch,700); }
+}
+// Pop-up pengumuman dari sheet PENGATURAN (key PENGUMUMAN). Kosong = tidak muncul.
+// PENGUMUMAN_SEKALI = YA -> hanya sekali per perangkat sampai teksnya diganti.
+async function showNotice(){
+  try{
+    const i=await gas('getInfo');
+    const t=String(i.pengumuman||'').trim();
+    if(!t)return;
+    if(i.sekali){
+      let hs=0;const src=(i.judulPengumuman||'')+'|'+t;
+      for(let k=0;k<src.length;k++)hs=(hs*31+src.charCodeAt(k))|0;
+      const key='cat_notice_'+(S.user?S.user.u:'');
+      if(store(key)===String(hs))return;
+      store(key,String(hs));
+    }
+    modal(i.judulPengumuman||'Pengumuman','<div class="rs-body">'+resFmt(t)+'</div>',[{t:'Mengerti',cls:'pri'}]);
+  }catch(e){}
 }
 function startBeat(){
   clearInterval(S.beat);
@@ -848,16 +872,31 @@ function vFull(){
 /* ---------- resume (catatan singkat dari sheet RESUME) ---------- */
 function loadResume(force){return swr('res',()=>gas('getResume',S.token),d=>{S.res=d;if(S.resKat!=='ALL'&&d.kat.indexOf(S.resKat)<0)S.resKat='ALL';renderResume();},'vRes',force===true);}
 function setResKat(k){S.resKat=k;renderResume();}
-// Format isi: "- teks" = poin, "1. teks" = bernomor, "Judul:" = subjudul, *huruf* = tebal, baris lain = paragraf
+// Format isi (dipakai juga untuk pop-up pengumuman):
+//   "- teks"            = poin
+//   "1. teks"           = poin bernomor
+//   "Label | isi"       = baris berlabel, titik dua otomatis sejajar (boleh diawali "- ")
+//   "Judul:"            = subjudul tebal
+//   baris kosong        = jarak antar bagian
+//   *huruf*             = tebal;  baris lain = paragraf
 function resFmt(s){
   const b=t=>esc(t).replace(/\*([^*\n]+)\*/g,'<b>$1</b>');
-  let h='',mode='';
-  const close=()=>{if(mode)h+='</'+mode+'>';mode='';};
-  String(s||'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean).forEach(l=>{
+  let h='',mode='',sp=true;
+  const close=()=>{if(mode)h+=(mode==='kv'?'</div>':'</'+mode+'>');mode='';};
+  String(s||'').split(/\r?\n/).map(x=>x.trim()).forEach(l=>{
+    if(!l){close();if(!sp){h+='<div class="rs-sp"></div>';sp=true;}return;}
+    sp=false;
     let m;
-    if((m=l.match(/^[-•]\s+(.*)$/))){if(mode!=='ul'){close();h+='<ul>';mode='ul';}h+='<li>'+b(m[1])+'</li>';}
-    else if((m=l.match(/^\d+[.)]\s+(.*)$/))){if(mode!=='ol'){close();h+='<ol>';mode='ol';}h+='<li>'+b(m[1])+'</li>';}
-    else{close();h+=(/:$/.test(l)&&l.length<70)?'<p class="rs-h">'+b(l)+'</p>':'<p>'+b(l)+'</p>';}
+    if((m=l.replace(/^[-•]\s+/,'').match(/^([^|]{1,90})\|(.+)$/))){
+      if(mode!=='kv'){close();h+='<div class="rs-kv">';mode='kv';}
+      h+='<span class="k">'+b(m[1].trim())+'</span><span class="c">:</span><span class="v">'+b(m[2].trim())+'</span>';
+    }else if((m=l.match(/^[-•]\s+(.*)$/))){
+      if(mode!=='ul'){close();h+='<ul>';mode='ul';}h+='<li>'+b(m[1])+'</li>';
+    }else if((m=l.match(/^\d+[.)]\s+(.*)$/))){
+      if(mode!=='ol'){close();h+='<ol>';mode='ol';}h+='<li>'+b(m[1])+'</li>';
+    }else{
+      close();h+=(/:$/.test(l)&&l.length<70)?'<p class="rs-h">'+b(l)+'</p>':'<p>'+b(l)+'</p>';
+    }
   });
   close();return h;
 }
